@@ -766,7 +766,7 @@ static int writeScriptClients(struct port_st *s_port, char *buf, int bytes,
 	if (s_port->breakPort && gdbSplit) {
 		int xmit = 0;
 		for (i = 0; i < bytes; i++) {
-			if (gdbPtr > MAX_GDB_BUF) {
+			if (gdbPtr >= MAX_GDB_BUF) {
 				gdbPtr = 0;
 				gdbGotDollar = 0;
 			} else if (buf[i] == '+' || buf[i] == '-') {
