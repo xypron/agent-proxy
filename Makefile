@@ -6,7 +6,7 @@
 # Original design by Jason Wessel                                          #
 ############################################################################
 
-AGENTVER=1.94
+AGENTVER=1.95
 
 ifeq ($(shell uname -s),Linux) 
 OSTYPE := linux
