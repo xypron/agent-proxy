@@ -35,6 +35,8 @@ typedef unsigned int socklen_t;
 #include <arpa/inet.h>
 #include <netdb.h>
 #define CLOSESOCKET(fd) close(fd)
+#include <errno.h>
+#include <sys/stat.h>
 #endif /* ! _WIN32 */
 #include "agent-proxy.h"
 
@@ -59,6 +61,7 @@ int logchar = 0;
 static struct port_st *rports = NULL;
 static int nsockhandle;
 static int listen_fd = -1;
+static int fifo_con_fd = -1;
 static struct port_st *l_ports;
 static struct port_st *r_ports;
 fd_set master_rds;
@@ -69,6 +72,7 @@ static int scriptPortReadMessage(struct port_st *l_port);
 static int scriptClientPortReadMessage(struct port_st *l_port);
 static int remotePortReadMessage(struct port_st *l_port);
 static int remotePortAccept(struct port_st *l_port);
+static int remotePortFifoConRead(struct port_st *l_port);
 static int breakOnConnect = 1;
 static int gdbSplit = 1;
 #define MAX_GDB_BUF 1024 * 8
@@ -76,6 +80,7 @@ static char gdbArr[MAX_GDB_BUF];
 static int gdbPtr = 0;
 static int gdbGotDollar = 0;
 static int telnetNegotiation = 0;
+static char *fifo_con_file;
 
 /* 
  * Program Usage.
@@ -318,7 +323,7 @@ static void killport(struct port_st *port)
 		/* Don't close the listener or the master receiver! */
 		if (port->cls == CLS_REMOTE_PORT &&
 		    (port->type == PORT_UDP || port->type == PORT_LISTEN ||
-		     port->type == STDINOUT)) {
+		     port->type == STDINOUT || port->type == PORT_FIFO_CON)) {
 			port->peer = NULL;
 		}
 		if (port->type == PORT_LISTEN && listen_fd >= 0) {
@@ -333,13 +338,26 @@ static void killport(struct port_st *port)
 			port->sock = listen_fd;
 			listen_fd = -1;
 		}
+		if (port->type == PORT_FIFO_CON && fifo_con_fd >= 0) {
+			/* Kill off the existing port and swap back to the
+			 * original handle
+			 */
+			FD_CLR(port->sock, &master_rds);
+			CLOSESOCKET(port->sock);
+			FD_SET(fifo_con_fd, &master_rds);
+			refresh_nsockhandle();
+			port->readMessage = remotePortFifoConRead;
+			port->sock = fifo_con_fd;
+			fifo_con_fd = -1;
+		}
 		return;
 	}
 
 	if (port->scriptRef && port == port->scriptRef->lscript) {
 		if (!(port->scriptRef->rscript->type == PORT_UDP ||
 		      port->scriptRef->rscript->type == PORT_LISTEN ||
-		      port->scriptRef->rscript->type == STDINOUT))
+		      port->scriptRef->rscript->type == STDINOUT ||
+			  port->scriptRef->rscript->type == PORT_FIFO_CON))
 			port->scriptRef->scriptInUse = 0;
 	}
 
@@ -613,9 +631,34 @@ static int setup_remote_port(struct port_st *rport, char *host, char *port)
 		setsockopt(rport->sock, SOL_SOCKET, SO_REUSEADDR,
 			   (char *)&tmp, sizeof(tmp));
 		rport->readMessage = remotePortAccept;
-	}
+	} 
 #ifndef _WIN32
-	else if (port[0] == '/' || port[0] == 'C' || port[0] == 'c') {
+	else if (strncmp(port, "fifocon:", 8) == 0) {
+		port += 8;
+		rport->type = PORT_FIFO_CON;
+		fifo_con_file = strdup(port);
+		if (mkfifo(port, 0700)) {
+			if (errno != EEXIST) {
+				fprintf(stderr, "Error creating %s fifo\n",	port);
+				return 1;
+			}
+		}
+		rport->sock = open(port, O_RDONLY|O_NONBLOCK);
+		if (rport->sock < 0) {
+			fprintf(stderr, "Error opening fifo\n");
+			return 1;
+		}
+		rport->readMessage = remotePortFifoConRead;
+		/* Setup call backs */
+		rport->portwrite = tcp_portwrite;
+		rport->portread = tcp_portread;
+		rport->portclose = tcp_portclose;
+
+		/* Add this port to the remote queue */
+		rport->next = rports;
+		rports = rport;
+		FD_SET(rport->sock, &master_rds);
+	} else if (port[0] == '/' || port[0] == 'C' || port[0] == 'c') {
 		char *baudinfo;
 		if ((baudinfo = strchr(port, ','))) {
 			*baudinfo = '\0';
@@ -1222,6 +1265,72 @@ static int remotePortAccept(struct port_st *iport)
 	return 0;
 }
 
+
+#define MAX_FIFO_BUF 50
+char fifo_buf[MAX_FIFO_BUF];
+int fifo_idx = 0;
+
+/* Take care of a read case from the console fifo
+ * 0 == success 
+ * 1 == failure
+ */
+static int remotePortFifoConRead(struct port_st *iport)
+{
+	int cc;
+	char ibuf[2];
+
+	if ((cc = read(iport->sock, ibuf, 1)) > 0) {
+		if (ibuf[0] == '\n') {
+			int port = atoi(fifo_buf);
+			int sock;
+			struct sockaddr_in serv_addr;
+
+			fifo_idx = 0;
+			sock = socket(AF_INET, SOCK_STREAM, 0);
+			if (sock < 0)
+				goto fifo_out;
+			setRemoteSockOpts(sock);
+			memset(&serv_addr, 0, sizeof(serv_addr));
+			serv_addr.sin_family = AF_INET;
+			serv_addr.sin_port = htons((short)port);
+			serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+			if (connect(sock, (struct sockaddr *) &serv_addr,
+				    sizeof (serv_addr)) < 0) {
+				close(sock);
+				fprintf(stderr,"Error connecting to local port %i\r\n", port);
+				goto fifo_out;
+			}
+			if (fifo_con_fd < 0) {
+				/* Swap the new port for the fifo_con port */
+				fifo_con_fd = iport->sock;
+				iport->sock = sock;
+				FD_CLR(fifo_con_fd, &master_rds);
+				FD_SET(iport->sock, &master_rds);
+				refresh_nsockhandle();
+				iport->readMessage = remotePortReadMessage;
+			}
+		}
+fifo_out:
+		if (ibuf[0] != '\r' && ibuf[0] != '\n') {
+			fifo_buf[fifo_idx] = ibuf[0];
+			fifo_idx++;
+		}
+		if (fifo_idx >= MAX_FIFO_BUF)
+			fifo_idx = 0;
+	} else {
+		close(iport->sock);
+		FD_CLR(iport->sock, &master_rds);
+		iport->sock = open(fifo_con_file, O_RDONLY|O_NONBLOCK);
+		if (iport->sock < 0) {
+			fprintf(stderr, "Error opening fifo\r\n");
+			exit(1);
+		}
+		FD_SET(iport->sock, &master_rds);
+		refresh_nsockhandle();
+	}
+	return 0;
+}
+
 /* Take care of a read case from a remote port 
  * 0 == success 
  * 1 == failure
@@ -1501,7 +1610,8 @@ int main(int argc, char *argv[])
 	/* When the remote side is udp and we are using script ports,
 	 * activate communications right away 
 	 */
-	if ((r_ports->type == PORT_UDP || r_ports->type == PORT_LISTEN)
+	if ((r_ports->type == PORT_UDP || r_ports->type == PORT_LISTEN ||
+		 r_ports->type == PORT_FIFO_CON)
 	    && l_ports->scriptRef) {
 		l_ports->scriptRef->scriptInUse = 1;
 		l_ports->scriptRef->rscript = r_ports;

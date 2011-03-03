@@ -31,6 +31,7 @@
 #define PORT_RS232     0x4
 #define STDINOUT       0x8
 #define PORT_LISTEN    0x10
+#define PORT_FIFO_CON  0x20
 
 /* constants */
 #define IO_BUFSIZE 8192
