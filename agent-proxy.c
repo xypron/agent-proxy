@@ -803,7 +803,6 @@ static int writeScriptClients(struct port_st *s_port, char *buf, int bytes,
 {
 	struct port_st *iport = s_port->clients;
 	int got;
-	int ret = 0;
 	int i;
 
 	if (s_port->breakPort && gdbSplit) {
@@ -848,7 +847,6 @@ static int writeScriptClients(struct port_st *s_port, char *buf, int bytes,
 				printf
 				    ("ERROR on write of client port %i got %i\n",
 				     iport->sock, got);
-			ret = 1;
 			killScriptClient(s_port, &iport, 1);
 			continue;
 		}
@@ -1456,8 +1454,10 @@ int main(int argc, char *argv[])
 	FILE *pidf;
 	int pid;
 	int ind;
+#ifdef USE_LATENCY
 	int baud;
 	int latency;
+#endif /* USE_LATENCY */
 	int got;
 	int select_ret;
 	char *s;
@@ -1560,14 +1560,14 @@ int main(int argc, char *argv[])
 					breakStrLen = 1;
 					breakStr[0] = (unsigned char)atoi(s);
 					break;
+#ifdef USE_LATENCY
 				case 'b':
 					baud = atoi(s);
 					break;
-
 				case 'l':
 					latency = atoi(s);
 					break;
-
+#endif /* USE_LATENCY */
 				default:
 					fprintf(stderr,
 						"%s: option -%c not recognized\n",
