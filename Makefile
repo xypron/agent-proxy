@@ -6,7 +6,7 @@
 # Original design by Jason Wessel                                          #
 ############################################################################
 
-AGENTVER=1.95
+AGENTVER=1.96
 
 ifeq ($(shell uname -s),Linux) 
 OSTYPE := linux
@@ -32,14 +32,14 @@ endif
 ifeq ($(ARCH),)
 CFLAGS = /GZ /Z7 /MTd -DDEBUG -nologo
 LINKFLAGS = 
-CC = cl -DAGENT_VER=$(AGENTVER)
+CC = cl
 #Change .o to .obj
 OBJS:=$(patsubst %.o,%.obj,$(OBJS))
 TLSPATH_INC=-I T:/rome_tls/x86-win/encap/sdk0204/include
 ## Unix Options ##
 else
 CFLAGS = -g -Wall -Wno-unused-parameter -D$(ARCH)
-CC = $(CROSS_COMPILE)gcc -DAGENT_VER=$(AGENTVER)
+CC = $(CROSS_COMPILE)gcc
 AGENTPROXY = $(CROSS_COMPILE)agent-proxy
 endif
 
@@ -48,10 +48,10 @@ all: $(CROSS_COMPILE)agent-proxy
 ## Build for win32 or unix
 ifeq ($(ARCH),)
 $(CROSS_COMPILE)agent-proxy: $(OBJS)
-	$(CC) $(LINKFLAGS) $(CFLAGS) -o $(extpath)$@ $(OBJS) wsock32.lib
+	$(CC) -DAGENT_VER=$(AGENTVER) $(LINKFLAGS) $(CFLAGS) -o $(extpath)$@ $(OBJS) wsock32.lib
 else
 $(CROSS_COMPILE)agent-proxy: $(OBJS)
-	$(CC) $(CFLAGS) -o $(extpath)$@ $(OBJS) $(LDLIBS)
+	$(CC) -DAGENT_VER=$(AGENTVER) $(CFLAGS) -o $(extpath)$@ $(OBJS) $(LDLIBS)
 endif
 
 
@@ -61,9 +61,9 @@ clean:
 	rm -f $(extpath)$(CROSS_COMPILE)agent-proxy $(extpath)agent-proxy $(extpath)*.o $(extpath)*.obj $(extpath)*.exp $(extpath)*.exe $(extpath)*.ilk $(extpath)*.pdb *~
 
 $(extpath)$(CROSS_COMPILE)%.o::%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) -DAGENT_VER=$(AGENTVER) $(CFLAGS) -c $< -o $@
 
 $(extpath)%.obj:%.c
-	$(CC) $(CFLAGS) -c -Fo$@ $(TLSPATH_INC) $<
+	$(CC) -DAGENT_VER=$(AGENTVER) $(CFLAGS) -c -Fo$@ $(TLSPATH_INC) $<
 
 
