@@ -113,6 +113,8 @@ char do_read(int fd, int *ret_errno)
 	unsigned char buf;
 	int ret;
 
+	*ret_errno = 0;
+
 	/* Perform the read */
 	ret = read(fd, &buf, sizeof(buf));
 	if (ret == -1) {
@@ -475,7 +477,7 @@ handle_gdb(void)
 	response_pending = 1;
 
 	rcv = do_read(gdb_fd, &ret_errno);
-	if (rcv == -1) {
+	if (ret_errno) {
 
 		/*
 		 * <ctrl>C in gdb or the gdb kill command will result in
@@ -599,7 +601,7 @@ handle_serial(void)
 	memset(buf, 0, sizeof(buf));
 
 	rcv = do_read(serial_fd, &ret_errno);
-	if (rcv == -1) {
+	if (ret_errno) {
 		pr_err("read() of serial port returned unexpected errno %d\n",
 		       ret_errno);
 		exit(EXIT_FAILURE);
@@ -660,7 +662,7 @@ handle_serial(void)
 
 			/* read one char */
 			rcv = do_read(serial_fd, &ret_errno);
-			if (rcv == -1) {
+			if (ret_errno) {
 				pr_err("read() of serial port returned unexpected errno %d\n",
 				       ret_errno);
 				exit(EXIT_FAILURE);
@@ -710,7 +712,7 @@ handle_term(void)
 	char rcv;
 
 	rcv = do_read(term_fd, &ret_errno);
-	if (rcv == -1) {
+	if (ret_errno) {
 		reset_term(ret_errno);
 		return;
 	}
