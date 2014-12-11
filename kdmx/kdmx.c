@@ -210,7 +210,7 @@ void do_write(int fd, char *buf, size_t len, int dw_flag)
 		int ret;
 		ret = ioctl(fd, TCSBRK, 0);
 		if (ret)
-			perror("BREAK ioctl() on serial port");
+			perror("serial port BREAK ioctl()");
 		else if (print_s)
 			/* zzz not a unique string.... */
 			pr_debug("__BREAK__");
@@ -235,13 +235,14 @@ void do_write(int fd, char *buf, size_t len, int dw_flag)
 
 		if (ret == -1) {
 			if (errno != EAGAIN) {
-				perror("write() ");
 				if (fd == gdb_fd)
-					pr_err("  write() was to gdb pty\n");
+					perror("gdb pty write()");
 				else if (fd == serial_fd)
-					pr_err("  write() was to serial port\n");
+					perror("serial port write()");
 				else if (fd == term_fd)
-					pr_err("  write() was to term pty\n");
+					perror("terminal emulator pty write()");
+				else
+					perror("unknown write()");
 				exit(EXIT_FAILURE);
 			}
 		} else if (ret != len) {
@@ -399,7 +400,7 @@ usage(void)
 	pr_err("\n");
 	pr_err("  KNOWN ISSUES:\n");
 	pr_err("\n");
-	pr_err("  The intended user of this program is an advanced kernel debugger, that is\n");
+	pr_err("  The intended user of this program is an advanced kernel debugger, who is\n");
 	pr_err("  a 'wizard'.  With this intended user, there are some 'sharp edges' that\n");
 	pr_err("  have not been removed from kdmx -- use this program with caution.\n");
 	pr_err("\n");
@@ -497,14 +498,13 @@ handle_gdb(void)
 		 */
 
 		if (ret_errno != EIO) {
-			pr_err("read() of gdb pty returned unexpected errno %d\n",
+			pr_err("gdb pty read() unexpected errno %d\n",
 			       ret_errno);
 			exit(EXIT_FAILURE);
 		}
 
-		pr_err("read() of gdb pty returned EIO,\n");
-		pr_err("  closing and re-opening gdb pty.\n");
-		pr_err("  EIO is expected if gdb closed the connection.\n");
+		pr_err("gdb pty read(): Input/output error, re-opening pty\n");
+		pr_err("  Not an error if gdb closed the connection\n");
 
 		/*
 		 * The gdb / kgdb (gdb_server) conversation is done.  Do not
@@ -517,11 +517,11 @@ handle_gdb(void)
 
 		ret = close(gdb_fd);
 		if (ret)
-			perror("close of gdb pty failed");
+			perror("gdb pty close()");
 
 		get_pty(&gdb_fd);
 		if (gdb_fd != old_gdb_fd) {
-			perror("new gdb pty fd is different than old gdb pty, giving up\n");
+			pr_err("new gdb pty fd is different than old gdb pty fd, giving up\n");
 			exit(EXIT_FAILURE);
 		}
 
@@ -533,6 +533,7 @@ handle_gdb(void)
 			pr_err("WARNING: gdb slave pty path has changed\n");
 		else
 			pr_err("gdb slave pty path is unchanged\n");
+		pr_err("\n");
 
 	} else {
 		do_write(serial_fd, &rcv, sizeof(rcv), 0);
@@ -553,36 +554,36 @@ reset_term(int ret_errno)
 	 */
 
 	if (ret_errno != EIO) {
-		pr_err("read() of terminal emulator pty returned unexpected errno %d\n",
+		pr_err("terminal emulator pty read(), unexpected errno %d\n",
 		       ret_errno);
 		exit(EXIT_FAILURE);
 	}
 
-	pr_err("read() of terminal emulator pty returned EIO,\n");
-	pr_err("  closing and re-opening terminal emulator pty.\n");
-	pr_err("  EIO is expected if terminal emulator exited.\n");
+	pr_err("terminal emulator pty read(): Input/output error, re-opening pty\n");
+	pr_err("  Not an error if terminal emulator exited\n");
 
 	old_term_fd = term_fd;
 	old_name = ptsname(term_fd);
 
 	ret = close(term_fd);
 	if (ret)
-		perror("close of terminal emulator pty failed");
+		perror("terminal emulator pty close()");
 
 	get_pty(&term_fd);
 	if (term_fd != old_term_fd) {
-		perror("new terminal emulator pty fd is different than old terminal emulator pty, giving up\n");
+		pr_err("new terminal emulator pty fd is different than old terminal emulator pty fd, giving up\n");
 		exit(EXIT_FAILURE);
 	}
 
 	name = ptsname(term_fd);
-	pr_info("%s is slave pty for for terminal emulator\n",
+	pr_info("%s is slave pty for terminal emulator\n",
 		name ? name : "ptsname() ERROR");
 
 	if (strcmp(name, old_name))
 		pr_err("WARNING: terminal emulator slave pty path has changed\n");
 	else
 		pr_err("terminal emulator slave pty path is unchanged\n");
+	pr_err("\n");
 }
 
 void
@@ -602,7 +603,7 @@ handle_serial(void)
 
 	rcv = do_read(serial_fd, &ret_errno);
 	if (ret_errno) {
-		pr_err("read() of serial port returned unexpected errno %d\n",
+		pr_err("serial port read() [1] unexpected errno %d\n",
 		       ret_errno);
 		exit(EXIT_FAILURE);
 	}
@@ -663,7 +664,7 @@ handle_serial(void)
 			/* read one char */
 			rcv = do_read(serial_fd, &ret_errno);
 			if (ret_errno) {
-				pr_err("read() of serial port returned unexpected errno %d\n",
+				pr_err("serial port read() [2] unexpected errno %d\n",
 				       ret_errno);
 				exit(EXIT_FAILURE);
 			}
@@ -877,7 +878,7 @@ main(int argc, char **argv)
 
 	/* Get the current infos on the serial port */
 	if (tcgetattr(serial_fd, &termios))
-		die("tcgetattr() of serial port");
+		die("tcgetattr() serial port");
 
 	/* Modify the speed */
 	cfsetispeed(&termios, new_baudrate);
@@ -905,11 +906,15 @@ main(int argc, char **argv)
 	select_nfds = gdb_fd + 1;
 
 	name = ptsname(term_fd);
-	pr_info("%s is slave pty for for terminal emulator\n",
+	pr_info("%s is slave pty for terminal emulator\n",
 		name ? name : "ptsname() ERROR");
 
 	name = ptsname(gdb_fd);
 	pr_info("%s is slave pty for gdb\n", name ? name : "ptsname() ERROR");
+
+	pr_info("\n");
+	pr_info("Use <ctrl>C to terminate program\n");
+	pr_info("\n");
 
 	while (1) {
 
