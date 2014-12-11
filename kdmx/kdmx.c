@@ -29,6 +29,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/param.h>
 
 /*
  * "Version Update Fix"
@@ -72,7 +73,6 @@ enum {
 
 #define DEFAULT_SERIAL "/dev/ttyS0"
 #define BUFMAX	2048
-#define SERIAL_PORT_PATHLEN	512
 
 int debug;
 int passthru_null_from_term;
@@ -749,7 +749,7 @@ main(int argc, char **argv)
 {
 	int select_nfds;
 	struct termios termios;
-	char serial_port_path[SERIAL_PORT_PATHLEN + 1];
+	char serial_port_path[MAXPATHLEN];
 	char *name;
 	fd_set readfds;
 
@@ -789,7 +789,7 @@ main(int argc, char **argv)
 			break;
 
 		case 'p':
-			if (strlen(optarg) > SERIAL_PORT_PATHLEN) {
+			if (strlen(optarg) >= sizeof(serial_port_path)) {
 				pr_err("Path length for serial port too long\n");
 				exit(EXIT_FAILURE);
 			}
@@ -843,9 +843,9 @@ main(int argc, char **argv)
 
 	serial_fd = open(serial_port_path, O_RDWR|O_NDELAY|O_NOCTTY);
 	if (serial_fd == -1) {
-		char msg[SERIAL_PORT_PATHLEN + strlen("open of ") + 1];
+		char msg[strlen("open() of ") + sizeof(serial_port_path) + 1];
 		memset(msg, 0, sizeof(msg));
-		sprintf(msg, "open of %s", serial_port_path);
+		sprintf(msg, "open() of %s", serial_port_path);
 		die(msg);
 	}
 
