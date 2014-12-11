@@ -60,6 +60,31 @@
 #define pr_info(fmt, ...) \
 	printf(fmt, ##__VA_ARGS__)
 
+#define pr_stat_gdb(fmt, ...)                                         \
+	do {                                                          \
+		if (status_gdb_fd != -1) {                            \
+			rewind(status_gdb_file);                      \
+			ftruncate(status_gdb_fd, 0);                  \
+			fprintf(status_gdb_file, fmt, ##__VA_ARGS__); \
+			fflush(status_gdb_file);                      \
+		} ;                                                   \
+	} while (0)
+
+#define pr_stat_trm(fmt, ...)                                 \
+	do {                                                          \
+		if (status_trm_fd != -1) {                            \
+			rewind(status_trm_file);                      \
+			ftruncate(status_trm_fd, 0);                  \
+			fprintf(status_trm_file, fmt, ##__VA_ARGS__); \
+			fflush(status_trm_file);                      \
+		} ;                                                   \
+	} while (0)
+
+int status_gdb_fd = -1;
+int status_trm_fd = -1;
+FILE *status_gdb_file;
+FILE *status_trm_file;
+
 int print_g;
 int print_s;
 int print_t;
@@ -394,6 +419,9 @@ usage(void)
 	pr_err("    -h       Print this message\n");
 	pr_err("    -n       Allow terminal emulator to send null (\\0) characters\n");
 	pr_err("    -p port  Serial port path. default: %s\n", DEFAULT_SERIAL);
+	pr_err("    -s spath write pty path to status file:\n");
+	pr_err("               ${spath}_gdb: gdb pty path\n");
+	pr_err("               ${spath}_trm: terminal emulator pty path\n");
 	pr_err("    -v       Print version\n");
 	pr_err("\n");
 	pr_err("  Console multiplexor for kgdb Linux kernel debugger.\n");
@@ -543,6 +571,7 @@ handle_gdb(void)
 			perror("gdb pty ptsname_r() [2]");
 		}
 
+		pr_stat_gdb("%s\n", name);
 		pr_info("%s is slave pty for gdb\n", name);
 
 		if (strcmp(name, old_name))
@@ -602,6 +631,7 @@ reset_term(int ret_errno)
 		perror("terminal emulator pty ptsname_r() [2]");
 	}
 
+	pr_stat_trm("%s\n", name);
 	pr_info("%s is slave pty for terminal emulator\n", name);
 
 	if (strcmp(name, old_name))
@@ -775,9 +805,15 @@ main(int argc, char **argv)
 	int select_nfds;
 	struct termios termios;
 	char serial_port_path[MAXPATHLEN];
+	char status_gdb_path[MAXPATHLEN];
+	char status_trm_path[MAXPATHLEN];
 	char name[MAXPATHLEN];
 	fd_set readfds;
 	int ret;
+
+	/* default status file */
+	status_gdb_path[0] = '\0';
+	status_trm_path[0] = '\0';
 
 	/* default serial port */
 	memset(serial_port_path, 0, sizeof(serial_port_path));
@@ -789,7 +825,7 @@ main(int argc, char **argv)
 
 		optopt = '?';
 
-		opt = getopt(argc, argv, "?b:dhl:np:vD:");
+		opt = getopt(argc, argv, "?b:dhl:np:s:vD:");
 
 		if (opt == -1)
 			break;
@@ -820,6 +856,23 @@ main(int argc, char **argv)
 				exit(EXIT_FAILURE);
 			}
 			strcpy(serial_port_path, optarg);
+			break;
+
+		case 's':
+			if ((strlen(optarg) >= (sizeof(status_gdb_path) + strlen("_xxx"))) ||
+			    (strlen(optarg) >= (sizeof(status_trm_path) + strlen("_xxx")))) {
+				pr_err("Path length for status file too long\n");
+				exit(EXIT_FAILURE);
+			}
+
+			/* len of suffix is strlen("_xxx") */
+
+			strcpy(status_gdb_path, optarg);
+			strcpy(status_trm_path, optarg);
+
+			strcat(status_gdb_path, "_gdb");
+			strcat(status_trm_path, "_trm");
+
 			break;
 
 		case 'v':
@@ -864,6 +917,58 @@ main(int argc, char **argv)
 	print_label = print_g + print_s + print_t + print_G + print_S + print_T;
 	if (print_label < 2)
 		print_label = 0;
+
+	if (strlen(status_gdb_path)) {
+		/*
+		 * fopen() creates file with mode == 0666.  use open() to
+		 * create with mode 0640
+		 */
+		status_gdb_fd = open(status_gdb_path,
+				 O_RDWR | O_CREAT | O_TRUNC,
+				 S_IRUSR | S_IWUSR | S_IRGRP);
+		if (status_gdb_fd == -1) {
+			char msg[strlen("open of ") + sizeof(status_gdb_path) + 1];
+
+			memset(msg, 0, sizeof(msg));
+			sprintf(msg, "open of %s", status_gdb_path);
+			die(msg);
+		}
+		status_gdb_file = fdopen(status_gdb_fd, "r+");
+		if (status_gdb_file == NULL) {
+			char msg[strlen("fdopen of ") + sizeof(status_gdb_path) + 1];
+
+			memset(msg, 0, sizeof(msg));
+			sprintf(msg, "fdopen of %s", status_gdb_path);
+			die(msg);
+		}
+		pr_debug("gdb status file: %s\n", status_gdb_path);
+	}
+
+	if (strlen(status_trm_path)) {
+		/*
+		 * fopen() creates file with mode == 0666.  use open() to
+		 * create with mode 0640
+		 */
+		status_trm_fd = open(status_trm_path,
+				 O_RDWR | O_CREAT | O_TRUNC,
+				 S_IRUSR | S_IWUSR | S_IRGRP);
+		if (status_trm_fd == -1) {
+			char msg[strlen("open of ") + sizeof(status_trm_path) + 1];
+
+			memset(msg, 0, sizeof(msg));
+			sprintf(msg, "open of %s", status_trm_path);
+			die(msg);
+		}
+		status_trm_file = fdopen(status_trm_fd, "r+");
+		if (status_trm_file == NULL) {
+			char msg[strlen("fdopen of ") + sizeof(status_trm_path) + 1];
+
+			memset(msg, 0, sizeof(msg));
+			sprintf(msg, "fdopen of %s", status_trm_path);
+			die(msg);
+		}
+		pr_debug("terminal emulator status file: %s\n", status_trm_path);
+	}
 
 	pr_debug("serial port: %s\n", serial_port_path);
 
@@ -935,12 +1040,14 @@ main(int argc, char **argv)
 	if (ret)
 		perror("terminal emulator pty ptsname_r() [3]");
 
+	pr_stat_trm("%s\n", name);
 	pr_info("%s is slave pty for terminal emulator\n", name);
 
 	ret = ptsname_r(gdb_fd, name, sizeof(name));
 	if (ret)
 		perror("gdb pty ptsname_r() [3]");
 
+	pr_stat_gdb("%s\n", name);
 	pr_info("%s is slave pty for gdb\n", name);
 
 	pr_info("\n");
