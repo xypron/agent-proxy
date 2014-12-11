@@ -16,6 +16,13 @@
  * kind, whether express or implied.  See the file COPYING for more details.
  */
 
+/*
+ * expose:
+ *  ftruncate(2)
+ *  ptsname_r(3)
+ */
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -471,8 +478,8 @@ handle_gdb(void)
 	int ret_errno;
 	int old_gdb_fd;
 	int ret;
-	char *name;
-	char *old_name;
+	char name[MAXPATHLEN];
+	char old_name[MAXPATHLEN];
 
 	debug_opened = 1;
 	response_pending = 1;
@@ -513,7 +520,12 @@ handle_gdb(void)
 		response_pending = 0;
 
 		old_gdb_fd = gdb_fd;
-		old_name = ptsname(gdb_fd);
+
+		ret = ptsname_r(gdb_fd, old_name, sizeof(old_name));
+		if (ret) {
+			perror("gdb pty ptsname_r() [1]");
+			old_name[0] = '\0';
+		}
 
 		ret = close(gdb_fd);
 		if (ret)
@@ -525,9 +537,13 @@ handle_gdb(void)
 			exit(EXIT_FAILURE);
 		}
 
-		name = ptsname(gdb_fd);
-		pr_info("%s is slave pty for gdb\n",
-			name ? name : "ptsname() ERROR");
+		ret = ptsname_r(gdb_fd, name, sizeof(name));
+		if (ret) {
+			name[0] = '\0';
+			perror("gdb pty ptsname_r() [2]");
+		}
+
+		pr_info("%s is slave pty for gdb\n", name);
 
 		if (strcmp(name, old_name))
 			pr_err("WARNING: gdb slave pty path has changed\n");
@@ -545,8 +561,8 @@ reset_term(int ret_errno)
 {
 	int old_term_fd;
 	int ret;
-	char *name;
-	char *old_name;
+	char name[MAXPATHLEN];
+	char old_name[MAXPATHLEN];
 
 	/*
 	 * Terminating minicom will result in reads of
@@ -563,7 +579,12 @@ reset_term(int ret_errno)
 	pr_err("  Not an error if terminal emulator exited\n");
 
 	old_term_fd = term_fd;
-	old_name = ptsname(term_fd);
+
+	ret = ptsname_r(term_fd, old_name, sizeof(old_name));
+	if (ret) {
+		old_name[0] = '\0';
+		perror("terminal emulator pty ptsname_r() [1]");
+	}
 
 	ret = close(term_fd);
 	if (ret)
@@ -575,9 +596,13 @@ reset_term(int ret_errno)
 		exit(EXIT_FAILURE);
 	}
 
-	name = ptsname(term_fd);
-	pr_info("%s is slave pty for terminal emulator\n",
-		name ? name : "ptsname() ERROR");
+	ret = ptsname_r(term_fd, name, sizeof(name));
+	if (ret) {
+		name[0] = '\0';
+		perror("terminal emulator pty ptsname_r() [2]");
+	}
+
+	pr_info("%s is slave pty for terminal emulator\n", name);
 
 	if (strcmp(name, old_name))
 		pr_err("WARNING: terminal emulator slave pty path has changed\n");
@@ -750,8 +775,9 @@ main(int argc, char **argv)
 	int select_nfds;
 	struct termios termios;
 	char serial_port_path[MAXPATHLEN];
-	char *name;
+	char name[MAXPATHLEN];
 	fd_set readfds;
+	int ret;
 
 	/* default serial port */
 	memset(serial_port_path, 0, sizeof(serial_port_path));
@@ -905,12 +931,17 @@ main(int argc, char **argv)
 	get_pty(&gdb_fd);
 	select_nfds = gdb_fd + 1;
 
-	name = ptsname(term_fd);
-	pr_info("%s is slave pty for terminal emulator\n",
-		name ? name : "ptsname() ERROR");
+	ret = ptsname_r(term_fd, name, sizeof(name));
+	if (ret)
+		perror("terminal emulator pty ptsname_r() [3]");
 
-	name = ptsname(gdb_fd);
-	pr_info("%s is slave pty for gdb\n", name ? name : "ptsname() ERROR");
+	pr_info("%s is slave pty for terminal emulator\n", name);
+
+	ret = ptsname_r(gdb_fd, name, sizeof(name));
+	if (ret)
+		perror("gdb pty ptsname_r() [3]");
+
+	pr_info("%s is slave pty for gdb\n", name);
 
 	pr_info("\n");
 	pr_info("Use <ctrl>C to terminate program\n");
