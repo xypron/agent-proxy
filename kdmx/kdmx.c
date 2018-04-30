@@ -109,7 +109,7 @@ enum {
 int debug;
 int passthru_null_from_term;
 
-speed_t new_baudrate = B9600;	/* see /usr/include/bits/termios.h */
+speed_t new_baudrate = B115200;	/* see /usr/include/bits/termios.h */
 
 int serial_fd;
 int term_fd;		/* terminal emulator pty master */
@@ -403,7 +403,7 @@ usage(void)
 	pr_err("Usage: kdmx [options]\n");
 	pr_err("\n");
 	pr_err("    -?       Print this message\n");
-	pr_err("    -b rate  Set serial port baud rate. default: 9600\n");
+	pr_err("    -b rate  Set serial port baud rate. default: 115200\n");
 	pr_err("               9600, 19200, 38400, 57600, 115200, 230400\n");
 	pr_err("    -d       Enable debug messages to stderr\n");
 	pr_err("    -Dx      Enable debug print of data stream(s) to stderr\n");
