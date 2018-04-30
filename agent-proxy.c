@@ -673,7 +673,8 @@ static int setup_remote_port(struct port_st *rport, char *host, char *port)
 			}
 
 			if (baudinfo) {
-				setbaudrate(rport->sock, atoi(baudinfo));
+				if (setbaudrate(rport->sock, atoi(baudinfo)))
+					return 1;
 			}
 			setstopbits(rport->sock, "1");
 			setcondefaults(rport->sock);

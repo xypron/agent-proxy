@@ -119,27 +119,39 @@ static int rate_to_code(int rate)
 static int get_tty_state(unsigned int sock, struct hardwire_ttystate *state)
 {
 #ifdef HAVE_TERMIOS
-	if (tcgetattr(sock, &state->termios) < 0)
+	if (tcgetattr(sock, &state->termios) < 0) {
+		perror("tcgetattr failed");
 		return -1;
+	}
 
 	return 0;
 #endif
 
 #ifdef HAVE_TERMIO
-	if (ioctl(sock, TCGETA, &state->termio) < 0)
+	if (ioctl(sock, TCGETA, &state->termio) < 0) {
+		perror("ioctl failed");
 		return -1;
+	}
 	return 0;
 #endif
 
 #ifdef HAVE_SGTTY
-	if (ioctl(sock, TIOCGETP, &state->sgttyb) < 0)
+	if (ioctl(sock, TIOCGETP, &state->sgttyb) < 0) {
+		perror("ioctl failed");
 		return -1;
-	if (ioctl(sock, TIOCGETC, &state->tc) < 0)
+	}
+	if (ioctl(sock, TIOCGETC, &state->tc) < 0) {
+		perror("ioctl failed");
 		return -1;
-	if (ioctl(sock, TIOCGLTC, &state->ltc) < 0)
+	}
+	if (ioctl(sock, TIOCGLTC, &state->ltc) < 0) {
+		perror("ioctl failed");
 		return -1;
-	if (ioctl(sock, TIOCLGET, &state->lmode) < 0)
+	}
+	if (ioctl(sock, TIOCLGET, &state->lmode) < 0) {
+		perror("ioctl failed");
 		return -1;
+	}
 
 	return 0;
 #endif
@@ -180,14 +192,16 @@ int setbaudrate(int sock, int baud)
 	int baud_code = rate_to_code(baud);
 
 	if (baud_code < 0) {
-		/* The baud rate was not valid.
-		   A warning has already been issued. */
+		/* The baud rate was not valid. */
+		fprintf(stderr, "Invalid baud rate\n");
 		errno = EINVAL;
 		return -1;
 	}
 
-	if (get_tty_state(sock, &state))
+	if (get_tty_state(sock, &state)) {
+		fprintf(stderr, "Cannot get tty state\n");
 		return -1;
+	}
 
 #ifdef HAVE_TERMIOS
 	cfsetospeed(&state.termios, baud_code);
