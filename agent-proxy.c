@@ -1586,6 +1586,9 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
+	if (pargs < 3)
+		usage();
+
 	/* Initialize the master read and write handles */
 	FD_ZERO(&master_rds);
 	FD_ZERO(&master_wds);
